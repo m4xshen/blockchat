@@ -42,7 +42,7 @@
     "@modelcontextprotocol/sdk": "^1.7.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "viem": "^2.23.9",
+    "viem": "^2.30.5",
     "zod": "^3.24.2"
   },
   "keywords": [

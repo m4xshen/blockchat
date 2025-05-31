@@ -32,6 +32,7 @@ import {
   aurora,
   canto,
   flowMainnet,
+  zircuit,
   
   // Testnets
   sepolia,
@@ -57,7 +58,8 @@ import {
   goerli,
   holesky,
   flowTestnet,
-  filecoinCalibration
+  filecoinCalibration,
+  zircuitGarfieldTestnet,
 } from 'viem/chains';
 
 // Default configuration values
@@ -98,6 +100,7 @@ export const chainMap: Record<number, Chain> = {
   1313161554: aurora,
   7700: canto,
   747: flowMainnet,
+  48900: zircuit,
   
   // Testnets
   11155111: sepolia,
@@ -124,6 +127,7 @@ export const chainMap: Record<number, Chain> = {
   17000: holesky,
   545: flowTestnet,
   314159: filecoinCalibration,
+  48898: zircuitGarfieldTestnet,
 };
 
 // Map network names to chain IDs for easier reference
@@ -172,6 +176,7 @@ export const networkNameMap: Record<string, number> = {
   'aurora': 1313161554,
   'canto': 7700,
   'flow': 747,
+  'zircuit': 48900,
   
   // Testnets
   'sepolia': 11155111,
@@ -218,6 +223,8 @@ export const networkNameMap: Record<string, number> = {
   'holesky': 17000,
   'flow-testnet': 545,
   'filecoin-calibration': 314159,
+  'zircuit-garfield': 48898,
+  'zircuitgarfield': 48898,
 };
 
 // Map chain IDs to RPC URLs
@@ -254,6 +261,7 @@ export const rpcUrlMap: Record<number, string> = {
   1313161554: 'https://mainnet.aurora.dev',
   7700: 'https://canto.gravitychain.io',
   747: 'https://mainnet.evm.nodes.onflow.org',
+  48900: 'https://mainnet.zircuit.com',
   
   // Testnets
   11155111: 'https://sepolia.drpc.org',
@@ -280,6 +288,7 @@ export const rpcUrlMap: Record<number, string> = {
   17000: 'https://ethereum-holesky.publicnode.com',
   545: 'https://testnet.evm.nodes.onflow.org',
   314159: 'https://api.calibration.node.glif.io/rpc/v1',
+  48898: 'https://garfield-testnet.zircuit.com',
 };
 
 /**
