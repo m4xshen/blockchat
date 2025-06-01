@@ -3,6 +3,18 @@ import { registerEVMResources } from "../core/resources.js";
 import { registerEVMTools } from "../core/tools.js";
 import { registerEVMPrompts } from "../core/prompts.js";
 import { getSupportedNetworks } from "../core/chains.js";
+import * as dotenv from "dotenv";
+import { join } from "path";
+import { existsSync } from "fs";
+
+// Load environment variables from .local.env file
+const envPath = join(process.cwd(), ".local.env");
+if (existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+  console.error("Loaded environment variables from .local.env");
+} else {
+  console.error("Warning: .local.env file not found. Create one from .local.env.example for private key configuration.");
+}
 
 // Create and start the MCP server
 async function startServer() {

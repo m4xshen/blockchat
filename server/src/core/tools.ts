@@ -428,13 +428,24 @@ export function registerEVMTools(server: McpServer) {
     "transfer_eth",
     "Transfer native tokens (ETH, MATIC, etc.) to an address",
     {
-      privateKey: z.string().describe("Private key of the sender account in hex format (with or without 0x prefix). SECURITY: This is used only for transaction signing and is not stored."),
       to: z.string().describe("The recipient address or ENS name (e.g., '0x1234...' or 'vitalik.eth')"),
       amount: z.string().describe("Amount to send in ETH (or the native token of the network), as a string (e.g., '0.1')"),
       network: z.string().optional().describe("Network name (e.g., 'ethereum', 'optimism', 'arbitrum', 'base', etc.) or chain ID. Supports all EVM-compatible networks. Defaults to Ethereum mainnet.")
     },
-    async ({ privateKey, to, amount, network = "ethereum" }) => {
+    async ({ to, amount, network = "ethereum" }) => {
       try {
+        // Get private key from environment variable
+        const privateKey = process.env.WALLET_PRIVATE_KEY;
+        if (!privateKey) {
+          return {
+            content: [{
+              type: "text",
+              text: `Error: WALLET_PRIVATE_KEY environment variable is not set. Please add it to your .local.env file.`
+            }],
+            isError: true
+          };
+        }
+        
         const txHash = await services.transferETH(privateKey, to, amount, network);
         
         return {
@@ -466,14 +477,25 @@ export function registerEVMTools(server: McpServer) {
     "transfer_erc20",
     "Transfer ERC20 tokens to another address",
     {
-      privateKey: z.string().describe("Private key of the sending account (this is used for signing and is never stored)"),
       tokenAddress: z.string().describe("The address of the ERC20 token contract"),
       toAddress: z.string().describe("The recipient address"),
       amount: z.string().describe("The amount of tokens to send (in token units, e.g., '10' for 10 tokens)"),
       network: z.string().optional().describe("Network name (e.g., 'ethereum', 'optimism', 'arbitrum', 'base', etc.) or chain ID. Supports all EVM-compatible networks. Defaults to Ethereum mainnet.")
     },
-    async ({ privateKey, tokenAddress, toAddress, amount, network = "ethereum" }) => {
+    async ({ tokenAddress, toAddress, amount, network = "ethereum" }) => {
       try {
+        // Get private key from environment variable
+        const privateKey = process.env.WALLET_PRIVATE_KEY;
+        if (!privateKey) {
+          return {
+            content: [{
+              type: "text",
+              text: `Error: WALLET_PRIVATE_KEY environment variable is not set. Please add it to your .local.env file.`
+            }],
+            isError: true
+          };
+        }
+        
         // Get the formattedKey with 0x prefix
         const formattedKey = privateKey.startsWith('0x') 
           ? privateKey as `0x${string}` 
@@ -518,14 +540,25 @@ export function registerEVMTools(server: McpServer) {
     "approve_token_spending",
     "Approve another address (like a DeFi protocol or exchange) to spend your ERC20 tokens. This is often required before interacting with DeFi protocols.",
     {
-      privateKey: z.string().describe("Private key of the token owner account in hex format (with or without 0x prefix). SECURITY: This is used only for transaction signing and is not stored."),
       tokenAddress: z.string().describe("The contract address of the ERC20 token to approve for spending (e.g., '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' for USDC on Ethereum)"),
       spenderAddress: z.string().describe("The contract address being approved to spend your tokens (e.g., a DEX or lending protocol)"),
       amount: z.string().describe("The amount of tokens to approve in token units, not wei (e.g., '1000' to approve spending 1000 tokens). Use a very large number for unlimited approval."),
       network: z.string().optional().describe("Network name (e.g., 'ethereum', 'optimism', 'arbitrum', 'base', 'polygon') or chain ID. Defaults to Ethereum mainnet.")
     },
-    async ({ privateKey, tokenAddress, spenderAddress, amount, network = "ethereum" }) => {
+    async ({ tokenAddress, spenderAddress, amount, network = "ethereum" }) => {
       try {
+        // Get private key from environment variable
+        const privateKey = process.env.WALLET_PRIVATE_KEY;
+        if (!privateKey) {
+          return {
+            content: [{
+              type: "text",
+              text: `Error: WALLET_PRIVATE_KEY environment variable is not set. Please add it to your .local.env file.`
+            }],
+            isError: true
+          };
+        }
+        
         // Get the formattedKey with 0x prefix
         const formattedKey = privateKey.startsWith('0x') 
           ? privateKey as `0x${string}` 
@@ -568,16 +601,27 @@ export function registerEVMTools(server: McpServer) {
   // Transfer NFT (ERC721)
   server.tool(
     "transfer_nft",
-    "Transfer an NFT (ERC721 token) from one address to another. Requires the private key of the current owner for signing the transaction.",
+    "Transfer an NFT (ERC721 token) from one address to another. Uses the private key configured in the .local.env file for signing the transaction.",
     {
-      privateKey: z.string().describe("Private key of the NFT owner account in hex format (with or without 0x prefix). SECURITY: This is used only for transaction signing and is not stored."),
       tokenAddress: z.string().describe("The contract address of the NFT collection (e.g., '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D' for Bored Ape Yacht Club)"),
       tokenId: z.string().describe("The ID of the specific NFT to transfer (e.g., '1234')"),
       toAddress: z.string().describe("The recipient wallet address that will receive the NFT"),
       network: z.string().optional().describe("Network name (e.g., 'ethereum', 'optimism', 'arbitrum', 'base', 'polygon') or chain ID. Most NFTs are on Ethereum mainnet, which is the default.")
     },
-    async ({ privateKey, tokenAddress, tokenId, toAddress, network = "ethereum" }) => {
+    async ({ tokenAddress, tokenId, toAddress, network = "ethereum" }) => {
       try {
+        // Get private key from environment variable
+        const privateKey = process.env.WALLET_PRIVATE_KEY;
+        if (!privateKey) {
+          return {
+            content: [{
+              type: "text",
+              text: `Error: WALLET_PRIVATE_KEY environment variable is not set. Please add it to your .local.env file.`
+            }],
+            isError: true
+          };
+        }
+        
         // Get the formattedKey with 0x prefix
         const formattedKey = privateKey.startsWith('0x') 
           ? privateKey as `0x${string}` 
@@ -621,17 +665,28 @@ export function registerEVMTools(server: McpServer) {
   // Transfer ERC1155 token
   server.tool(
     "transfer_erc1155",
-    "Transfer ERC1155 tokens to another address. ERC1155 is a multi-token standard that can represent both fungible and non-fungible tokens in a single contract.",
+    "Transfer ERC1155 tokens to another address. ERC1155 is a multi-token standard that can represent both fungible and non-fungible tokens in a single contract. Uses the private key configured in the .local.env file.",
     {
-      privateKey: z.string().describe("Private key of the token owner account in hex format (with or without 0x prefix). SECURITY: This is used only for transaction signing and is not stored."),
       tokenAddress: z.string().describe("The contract address of the ERC1155 token collection (e.g., '0x76BE3b62873462d2142405439777e971754E8E77')"),
       tokenId: z.string().describe("The ID of the specific token to transfer (e.g., '1234')"),
       amount: z.string().describe("The quantity of tokens to send (e.g., '1' for a single NFT or '10' for 10 fungible tokens)"),
       toAddress: z.string().describe("The recipient wallet address that will receive the tokens"),
       network: z.string().optional().describe("Network name (e.g., 'ethereum', 'optimism', 'arbitrum', 'base', 'polygon') or chain ID. ERC1155 tokens exist across many networks. Defaults to Ethereum mainnet.")
     },
-    async ({ privateKey, tokenAddress, tokenId, amount, toAddress, network = "ethereum" }) => {
+    async ({ tokenAddress, tokenId, amount, toAddress, network = "ethereum" }) => {
       try {
+        // Get private key from environment variable
+        const privateKey = process.env.WALLET_PRIVATE_KEY;
+        if (!privateKey) {
+          return {
+            content: [{
+              type: "text",
+              text: `Error: WALLET_PRIVATE_KEY environment variable is not set. Please add it to your .local.env file.`
+            }],
+            isError: true
+          };
+        }
+        
         // Get the formattedKey with 0x prefix
         const formattedKey = privateKey.startsWith('0x') 
           ? privateKey as `0x${string}` 
@@ -1162,12 +1217,22 @@ export function registerEVMTools(server: McpServer) {
   // Get address from private key
   server.tool(
     "get_address_from_private_key",
-    "Get the EVM address derived from a private key",
-    {
-      privateKey: z.string().describe("Private key in hex format (with or without 0x prefix). SECURITY: This is used only for address derivation and is not stored.")
-    },
-    async ({ privateKey }) => {
+    "Get the EVM address derived from the private key configured in the .local.env file",
+    {},
+    async () => {
       try {
+        // Get private key from environment variable
+        const privateKey = process.env.WALLET_PRIVATE_KEY;
+        if (!privateKey) {
+          return {
+            content: [{
+              type: "text",
+              text: `Error: WALLET_PRIVATE_KEY environment variable is not set. Please add it to your .local.env file.`
+            }],
+            isError: true
+          };
+        }
+        
         // Ensure the private key has 0x prefix
         const formattedKey = privateKey.startsWith('0x') ? privateKey as Hex : `0x${privateKey}` as Hex;
         
