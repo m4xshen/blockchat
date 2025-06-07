@@ -4,7 +4,6 @@ export * from './balance.js';
 export * from './transfer.js';
 export * from './blocks.js';
 export * from './transactions.js';
-export * from './contracts.js';
 export * from './tokens.js';
 export * from './ens.js';
 export { utils as helpers } from './utils.js';
