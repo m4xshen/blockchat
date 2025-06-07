@@ -1346,8 +1346,7 @@ export function registerEVMTools(server: McpServer) {
           content: [{
             type: "text",
             text: JSON.stringify({
-              address,
-              privateKey: "0x" + privateKey.replace(/^0x/, '')
+              address
             }, null, 2)
           }]
         };
