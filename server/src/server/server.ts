@@ -7,13 +7,13 @@ import * as dotenv from "dotenv";
 import { join } from "path";
 import { existsSync } from "fs";
 
-// Load environment variables from .local.env file
-const envPath = join(process.cwd(), ".local.env");
+// Load environment variables from .env.local file
+const envPath = join(process.cwd(), ".env.local");
 if (existsSync(envPath)) {
   dotenv.config({ path: envPath });
-  console.error("Loaded environment variables from .local.env");
+  console.error("Loaded environment variables from .env.local");
 } else {
-  console.error("Warning: .local.env file not found. Create one from .local.env.example for private key configuration.");
+  console.error("Warning: .env.local file not found. Create one from .env.local.example for private key configuration (if it exists), or ensure your .env.local is correctly named and placed.");
 }
 
 // Create and start the MCP server

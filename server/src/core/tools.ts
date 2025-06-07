@@ -1,9 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as services from "./services/index.js";
-import { type Address, type Hex, type Hash, parseEther } from 'viem';
+import { type Address, type Hex, type Hash, parseEther, getAddress } from 'viem';
 import { getChain, getRpcUrl, getSupportedNetworks } from "./chains.js"; // Assuming getChain is exported from chains.js
 import { normalize } from 'viem/ens';
+import axios from 'axios';
+import { type RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import { type ProgressNotification } from "@modelcontextprotocol/sdk/types.js";
+
+// Omit type helper if not available from a project-wide utility library
+type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
 
 /**
  * Register all EVM-related tools with the MCP server
@@ -749,6 +755,153 @@ export function registerEVMTools(server: McpServer) {
     }
   );
 
+
+  server.tool(
+    "swap_tokens_1inch",
+    "Swaps tokens on a given EVM network using the 1inch Aggregation Protocol to find the best rates. Requires ONEINCH_API_KEY and WALLET_PRIVATE_KEY environment variables.",
+    {
+      fromTokenAddress: z.string().describe("Contract address of the token to swap from (e.g., '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' for USDC). Use '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' for native ETH."),
+      toTokenAddress: z.string().describe("Contract address of the token to swap to. Use '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' for native ETH."),
+      amount: z.string().describe("The amount of the fromToken to swap, in its smallest units (e.g., wei for ETH, or amount * 10^decimals for ERC20 tokens)."),
+      network: z.string().optional().default("ethereum").describe("Network name (e.g., 'ethereum', 'polygon', 'bsc', 'optimism', 'arbitrum') or chain ID. Defaults to Ethereum mainnet."),
+      slippage: z.number().min(0.01).max(50).default(1).describe("Slippage tolerance percentage (e.g., 1 for 1%). Min 0.01, Max 50. Defaults to 1%."),
+    },
+    async function (
+      this: RequestHandlerExtra, // Ensure 'this' is typed, even if not using this.progress
+      input
+    ): Promise<{ content: { type: 'text', text: string }[], isError?: boolean, transactionHash?: Hash }> {
+      const { fromTokenAddress, toTokenAddress, amount, network, slippage } = input;
+
+      const { ONEINCH_API_KEY, WALLET_PRIVATE_KEY } = process.env;
+      if (!ONEINCH_API_KEY) {
+        console.error('swap_tokens_1inch: ONEINCH_API_KEY is not set.');
+        return { content: [{ type: 'text', text: 'Server configuration error: Missing 1inch API key.' }], isError: true };
+      }
+      if (!WALLET_PRIVATE_KEY) {
+        console.error('swap_tokens_1inch: WALLET_PRIVATE_KEY is not set.');
+        return { content: [{ type: 'text', text: 'Server configuration error: Missing wallet private key.' }], isError: true };
+      }
+      const formattedPk = (WALLET_PRIVATE_KEY.startsWith('0x') ? WALLET_PRIVATE_KEY : `0x${WALLET_PRIVATE_KEY}`) as Hex;
+
+      const apiKey = process.env.ONEINCH_API_KEY;
+      if (!apiKey) {
+        console.error('swap_tokens_1inch: ONEINCH_API_KEY is not set.');
+        return { content: [{ type: 'text', text: 'Server configuration error: Missing 1inch API key.' }], isError: true };
+      }
+
+      const chain = getChain(network);
+      if (!chain) {
+        const errorMsg = `Unsupported network: ${network}`;
+        console.error(`swap_tokens_1inch: ${errorMsg}`);
+        return { content: [{ type: 'text', text: errorMsg }], isError: true };
+      }
+      const chainId = chain.id;
+
+      const walletClient = services.getWalletClient(formattedPk, chainId);
+      if (!walletClient.account) {
+        const errorMsg = "Failed to initialize wallet client with an account.";
+        console.error(`swap_tokens_1inch: ${errorMsg}`);
+        return { content: [{ type: 'text', text: errorMsg }], isError: true };
+      }
+      const fromWalletAddress = walletClient.account.address;
+
+      const API_BASE_URL = `https://api.1inch.dev/swap/v6.0/${chainId}`;
+      const headers = {
+        "Authorization": `Bearer ${apiKey}`,
+        "Accept": "application/json"
+      };
+
+      try {
+        let spenderAddress: Address;
+        try {
+          const spenderResponse = await axios.get(`${API_BASE_URL}/approve/spender`, { headers });
+          spenderAddress = spenderResponse.data.address as Address;
+        } catch (e: any) {
+          const errorMsg = e.response?.data?.description || e.message || "Unknown error fetching 1inch spender address";
+          console.error(`swap_tokens_1inch: Failed to fetch 1inch spender address: ${e instanceof Error ? e.message : String(e)}`);
+          return { content: [{ type: 'text', text: `Error fetching 1inch spender: ${e instanceof Error ? e.message : String(e)}` }], isError: true };
+        }
+
+        // Add a delay to potentially help with rate limiting
+        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+        await delay(1100); // 2-second delay
+
+        if (fromTokenAddress.toLowerCase() !== '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+          // In a full implementation, you would call your services.getERC20Allowance here.
+          // For now, we'll log that this step is important.
+          console.log(`swap_tokens_1inch: Note: Actual allowance check and approval transaction are not implemented in this version. Ensure ${spenderAddress} has sufficient allowance.`);
+        } else {
+          console.log('swap_tokens_1inch: Skipping allowance check for native ETH.');
+        }
+
+        const swapApiParams = {
+          src: fromTokenAddress,
+          dst: toTokenAddress,
+          amount: amount,
+          from: fromWalletAddress,
+          slippage: slippage,
+          // Add other necessary params like: 
+          // origin: 'your_project_name', // helps 1inch track usage
+          // disableEstimate: true, // if you don't want 1inch to estimate gas, and prefer to do it yourself or let wallet do it
+        };
+
+        let swapApiResponseData;
+        try {
+          const response = await axios.get(`${API_BASE_URL}/swap`, { params: swapApiParams, headers });
+          swapApiResponseData = response.data;
+        } catch (e: any) {
+          const errorDetail = e.response?.data?.description || e.response?.data?.error || e.message;
+          const errorMsg = `Error fetching swap data from 1inch: ${errorDetail || 'Unknown error'}`;
+          console.error(`swap_tokens_1inch: ${errorMsg}`);
+          return { content: [{ type: 'text', text: errorMsg }], isError: true };
+        }
+
+        const txData = swapApiResponseData.tx;
+        if (!txData || !txData.to || !txData.data || typeof txData.value === 'undefined') {
+          const errorMsg = 'Invalid swap data received from 1inch (missing tx fields).';
+          console.error(`swap_tokens_1inch: ${errorMsg}`);
+          return { content: [{ type: 'text', text: errorMsg }], isError: true };
+        }
+
+        const transactionRequest = {
+          to: txData.to as Address,
+          data: txData.data as Hex,
+          value: BigInt(txData.value),
+          gas: txData.gas ? BigInt(txData.gas) : undefined,
+          // gasPrice: txData.gasPrice ? BigInt(txData.gasPrice) : undefined, // For legacy tx
+          // maxFeePerGas, maxPriorityFeePerGas for EIP-1559 if provided by 1inch or estimated separately
+          account: walletClient.account,
+          chain: chain,
+        };
+
+        const hash = await walletClient.sendTransaction(transactionRequest);
+
+        console.log(`swap_tokens_1inch: Swap transaction submitted. Hash: ${hash}`);
+        console.log('DEBUG: swap_tokens_1inch - swapApiResponseData:', JSON.stringify(swapApiResponseData, null, 2)); // Log the response for debugging
+        
+        const toTokenSymbol = swapApiResponseData?.toToken?.symbol || 'Unknown Token';
+        const toTokenDecimals = swapApiResponseData?.toToken?.decimals !== undefined ? swapApiResponseData.toToken.decimals : 'N/A';
+
+        return {
+          content: [{
+            type: 'text',
+            text: `Swap transaction submitted. Hash: ${hash}. Expected output: ${swapApiResponseData.toAmount} ${toTokenSymbol} (raw amount, decimals: ${toTokenDecimals})`
+          }],
+          // To format nicely, you'd use: services.formatTokenAmount(swapApiResponseData.toAmount, swapApiResponseData.toToken.decimals) if available
+          transactionHash: hash
+        };
+
+      } catch (error: any) {
+        const errorMsg = error.shortMessage || error.message || "An unknown error occurred during the swap process.";
+        console.error(`swap_tokens_1inch: Swap failed: ${errorMsg}`, error);
+        return {
+          content: [{ type: 'text', text: `Swap failed: ${errorMsg}` }],
+          isError: true
+        };
+      }
+    }
+  );
+
   // Get ERC20 token information
   server.tool(
     "get_token_info",
@@ -759,15 +912,20 @@ export function registerEVMTools(server: McpServer) {
     },
     async ({ tokenAddress, network = "ethereum" }) => {
       try {
-        const tokenInfo = await services.getERC20TokenInfo(tokenAddress as Address, network);
+        const checksummedAddress = getAddress(tokenAddress as Address); // Ensure address is checksummed
+        const tokenInfo = await services.getERC20TokenInfo(checksummedAddress, network);
         
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
-              address: tokenAddress,
+              address: checksummedAddress, // Use checksummed address in response
               network,
-              ...tokenInfo
+              name: tokenInfo.name,
+              symbol: tokenInfo.symbol,
+              decimals: tokenInfo.decimals,
+              totalSupply: tokenInfo.totalSupply.toString(), // Convert BigInt to string
+              formattedTotalSupply: tokenInfo.formattedTotalSupply
             }, null, 2)
           }]
         };
