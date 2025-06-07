@@ -3,15 +3,20 @@ import {
   createWalletClient, 
   http, 
   type PublicClient,
-  type WalletClient,
+  type WalletClient, // Generic WalletClient type
   type Hex,
-  type Address
+  type Address,
+  type Chain,         // Added for explicit typing
+  type HttpTransport  // Added for explicit typing
 } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { privateKeyToAccount, type Account } from 'viem/accounts'; // Added 'type Account'
+import { mainnet, optimism, arbitrum } from 'viem/chains';
+import { createAcrossClient, type AcrossClient } from '@across-protocol/app-sdk';
 import { getChain, getRpcUrl } from '../chains.js';
 
 // Cache for clients to avoid recreating them for each request
 const clientCache = new Map<string, PublicClient>();
+let acrossClientInstance: AcrossClient | null = null;
 
 /**
  * Get a public client for a specific network
@@ -42,7 +47,7 @@ export function getPublicClient(network = 'ethereum'): PublicClient {
 /**
  * Create a wallet client for a specific network and private key
  */
-export function getWalletClient(privateKey: Hex, network = 'ethereum'): WalletClient {
+export function getWalletClient(privateKey: Hex, network: string | number = 'ethereum'): WalletClient<HttpTransport, Chain, Account> {
   const chain = getChain(network);
   const rpcUrl = getRpcUrl(network);
   const account = privateKeyToAccount(privateKey);
@@ -52,6 +57,22 @@ export function getWalletClient(privateKey: Hex, network = 'ethereum'): WalletCl
     chain,
     transport: http(rpcUrl)
   });
+}
+
+/**
+ * Get an initialized Across Protocol SDK client
+ */
+export function getAcrossClient(): AcrossClient {
+  if (acrossClientInstance) {
+    return acrossClientInstance;
+  }
+
+  acrossClientInstance = createAcrossClient({
+    chains: [mainnet, optimism, arbitrum],
+    // Add any other default Across client configurations here
+  });
+
+  return acrossClientInstance;
 }
 
 /**

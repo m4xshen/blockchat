@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getSupportedNetworks, getRpcUrl } from "./chains.js";
 import * as services from "./services/index.js";
-import { type Address, type Hex, type Hash } from 'viem';
+import { type Address, type Hex, type Hash, parseEther } from 'viem';
+import { getChain, getRpcUrl, getSupportedNetworks } from "./chains.js"; // Assuming getChain is exported from chains.js
 import { normalize } from 'viem/ens';
 
 /**
@@ -15,6 +15,110 @@ import { normalize } from 'viem/ens';
  */
 export function registerEVMTools(server: McpServer) {
   // NETWORK INFORMATION TOOLS
+
+  // Bridge Native ETH Tool
+  server.tool(
+    "bridge_native_eth_across",
+    "Bridges native ETH between mainnet and L2s (Optimism, Arbitrum) using Across Protocol.",
+    {
+      originNetwork: z.string().min(1, 'Origin network is required'),
+      destinationNetwork: z.string().min(1, 'Destination network is required'),
+      amountInEth: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
+        message: "Amount must be a positive number string (e.g., '0.1')",
+      }),
+    },
+    async (input): Promise<{ content: { type: 'text', text: string }[], isError?: boolean, depositTxHash?: Hash }> => {
+      // Input validation is expected to be handled by the MCP server based on the schema above.
+      const { originNetwork, destinationNetwork, amountInEth } = input;
+
+      const privateKey = process.env.WALLET_PRIVATE_KEY;
+      if (!privateKey) {
+        return { content: [{ type: 'text', text: "WALLET_PRIVATE_KEY environment variable is not set." }], isError: true };
+      }
+      const formattedKey = (privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`) as Hex;
+
+      const acrossClient = services.getAcrossClient();
+      const originChain = getChain(originNetwork);
+      const destinationChain = getChain(destinationNetwork);
+
+      if (!originChain) {
+        return { content: [{ type: 'text', text: `Unsupported origin network: ${originNetwork}` }], isError: true };
+      }
+      if (!destinationChain) {
+        return { content: [{ type: 'text', text: `Unsupported destination network: ${destinationNetwork}` }], isError: true };
+      }
+
+      const wethAddresses: Record<number, Address> = {
+        [1]: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // Mainnet WETH
+        [10]: "0x4200000000000000000000000000000000000006", // Optimism WETH
+        [42161]: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", // Arbitrum WETH
+      };
+
+      const inputTokenAddress = wethAddresses[originChain.id];
+      const outputTokenAddress = wethAddresses[destinationChain.id];
+
+      if (!inputTokenAddress) {
+        return { content: [{ type: 'text', text: `WETH address not configured for origin chain ID: ${originChain.id}` }], isError: true };
+      }
+      if (!outputTokenAddress) {
+        return { content: [{ type: 'text', text: `WETH address not configured for destination chain ID: ${destinationChain.id}` }], isError: true };
+      }
+
+      console.log(`Attempting to bridge ${amountInEth} ETH from ${originNetwork} to ${destinationNetwork}`);
+
+      const quote = await acrossClient.getQuote({
+        route: {
+          originChainId: originChain.id,
+          destinationChainId: destinationChain.id,
+          inputToken: inputTokenAddress,
+          outputToken: outputTokenAddress,
+          isNative: true, 
+        },
+        inputAmount: parseEther(amountInEth),
+      });
+
+      console.log('Quote received:', quote);
+
+      const walletClient = services.getWalletClient(formattedKey, originChain.id);
+      if (!walletClient.account) {
+        return { content: [{ type: 'text', text: "Failed to initialize wallet client with an account." }], isError: true };
+      }
+
+      return new Promise((resolve, reject) => {
+        acrossClient.executeQuote({
+          walletClient: walletClient, 
+          deposit: quote.deposit,
+          onProgress: (progress) => {
+            console.log(`Bridging progress: step=${progress.step}, status=${progress.status}`);
+            if (progress.step === "approve" && progress.status === "txSuccess") {
+              console.log('Approval successful. Tx:', progress.txReceipt?.transactionHash);
+            }
+            if (progress.step === "deposit" && progress.status === "txSuccess") {
+              console.log('Deposit successful. Tx:', progress.txReceipt?.transactionHash, 'Deposit ID:', progress.depositId);
+              if (progress.txReceipt?.transactionHash) {
+                resolve({
+                  content: [{ type: 'text', text: `Successfully initiated ETH bridge. Deposit Tx: ${progress.txReceipt.transactionHash}` }],
+                  depositTxHash: progress.txReceipt.transactionHash
+                });
+              } else {
+                reject({ content: [{ type: 'text', text: "Deposit transaction successful but no transaction hash found." }], isError: true });
+              }
+            }
+            if (progress.step === "fill" && progress.status === "txSuccess") {
+              console.log('Fill successful. Tx:', progress.txReceipt?.transactionHash, 'Action Success:', progress.actionSuccess);
+            }
+            if (progress.status === "txError" || progress.status === "error") {
+              console.error('Bridging error:', progress);
+              reject({ content: [{ type: 'text', text: `Bridging failed at step ${progress.step}. Reason: ${progress.error || 'Unknown error'}` }], isError: true });
+            }
+          },
+        }).catch(error => {
+          console.error('Error executing quote:', error);
+          reject({ content: [{ type: 'text', text: `Error executing quote: ${error instanceof Error ? error.message : String(error)}` }], isError: true });
+        });
+      });
+    }
+  );
   
   // Get chain information
   server.tool(

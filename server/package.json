@@ -40,11 +40,12 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
+    "@across-protocol/app-sdk": "^0.2.2",
     "@modelcontextprotocol/sdk": "^1.7.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.21.2",
-    "viem": "^2.30.5",
+    "viem": "^2.30.6",
     "zod": "^3.24.2"
   },
   "keywords": [
