@@ -6,7 +6,10 @@ import { getChain, getRpcUrl, getSupportedNetworks } from "./chains.js"; // Assu
 import { normalize } from 'viem/ens';
 import axios from 'axios';
 import { type RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import { type ProgressNotification } from "@modelcontextprotocol/sdk/types.js";
+import { type TokenInfo } from '@across-protocol/app-sdk';
+
+const acrossClient = services.getAcrossClient();
+const chains = await acrossClient.getSupportedChains({});
 
 // Omit type helper if not available from a project-wide utility library
 type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
@@ -912,14 +915,13 @@ export function registerEVMTools(server: McpServer) {
     },
     async ({ tokenAddress, network = "ethereum" }) => {
       try {
-        const checksummedAddress = getAddress(tokenAddress as Address); // Ensure address is checksummed
-        const tokenInfo = await services.getERC20TokenInfo(checksummedAddress, network);
+        const tokenInfo = await services.getERC20TokenInfo(tokenAddress as Address, network);
         
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
-              address: checksummedAddress, // Use checksummed address in response
+              address: tokenAddress,
               network,
               name: tokenInfo.name,
               symbol: tokenInfo.symbol,
@@ -982,6 +984,56 @@ export function registerEVMTools(server: McpServer) {
           isError: true
         };
       }
+    }
+  );
+
+  // Get Token Contract Address
+  server.tool(
+    "get_token_contract_address",
+    "Gets the ERC20 contract address for a given token symbol on a specified chain.",
+    {
+      chainIdentifier: z.union([z.string(), z.number()]).describe("The chain name (e.g., 'Ethereum', 'Optimism') or chain ID (e.g., 1, 10)"),
+      tokenSymbol: z.string().min(1, 'Token symbol is required').describe("The token symbol (e.g., 'USDC', 'WETH')"),
+    },
+    async (input): Promise<{ content: { type: 'text', text: string }[], isError?: boolean, contractAddress?: Address }> => {
+      const { chainIdentifier, tokenSymbol } = input;
+
+      // The 'chains' variable is available from the module scope, loaded when the module initializes.
+      // It contains data from acrossClient.getSupportedChains({})
+      const targetChain = chains.find(chain =>
+        (typeof chainIdentifier === 'number' && chain.chainId === chainIdentifier) ||
+        (typeof chainIdentifier === 'string' && chain.name.toLowerCase() === chainIdentifier.toLowerCase())
+      );
+
+      if (!targetChain) {
+        return {
+          content: [{ type: 'text', text: `Chain '${chainIdentifier}' not found or not supported by Across.` }],
+          isError: true
+        };
+      }
+
+      const normalizedTokenSymbol = tokenSymbol.toLowerCase();
+      let foundToken: TokenInfo | undefined = undefined;
+
+      // Search in inputTokens first
+      foundToken = targetChain.inputTokens.find(token => token.symbol.toLowerCase() === normalizedTokenSymbol);
+
+      // If not found in inputTokens, search in outputTokens
+      if (!foundToken) {
+        foundToken = targetChain.outputTokens.find(token => token.symbol.toLowerCase() === normalizedTokenSymbol);
+      }
+
+      if (!foundToken) {
+        return {
+          content: [{ type: 'text', text: `Token symbol '${tokenSymbol}' not found on chain '${targetChain.name}' (ID: ${targetChain.chainId}).` }],
+          isError: true
+        };
+      }
+
+      return {
+        content: [{ type: 'text', text: `Contract address for ${tokenSymbol} on ${targetChain.name} (Chain ID: ${targetChain.chainId}) is ${foundToken.address}` }],
+        contractAddress: foundToken.address
+      };
     }
   );
 
