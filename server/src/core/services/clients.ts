@@ -10,7 +10,7 @@ import {
   type HttpTransport  // Added for explicit typing
 } from 'viem';
 import { privateKeyToAccount, type Account } from 'viem/accounts'; // Added 'type Account'
-import { mainnet, optimism, arbitrum } from 'viem/chains';
+import { mainnet, optimism, arbitrum, base } from 'viem/chains';
 import { createAcrossClient, type AcrossClient } from '@across-protocol/app-sdk';
 import { getChain, getRpcUrl } from '../chains.js';
 
@@ -68,8 +68,7 @@ export function getAcrossClient(): AcrossClient {
   }
 
   acrossClientInstance = createAcrossClient({
-    chains: [mainnet, optimism, arbitrum],
-    // Add any other default Across client configurations here
+    chains: [mainnet, optimism, arbitrum, base],
   });
 
   return acrossClientInstance;

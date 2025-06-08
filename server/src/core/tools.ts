@@ -139,9 +139,10 @@ export function registerEVMTools(server: McpServer) {
       originTokenAddress: z.string().refine(val => /^0x[a-fA-F0-9]{40}$/.test(val), {
         message: "Origin token address must be a valid Ethereum address (e.g., '0x...')",
       }),
-      amount: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
-        message: "Amount must be a positive number string (e.g., '100.5')",
-      }),
+      amount: z.string().regex(/^\d+$/, "Amount must be a string of digits representing the smallest unit of the token (e.g., for 1 USDC with 6 decimals, amount should be '1000000').")
+        .refine(val => BigInt(val) > 0n, {
+          message: "Amount must be greater than 0.",
+        }),
     },
     async (input): Promise<{ content: { type: 'text', text: string }[], isError?: boolean, depositTxHash?: Hash }> => {
       const { originNetwork, destinationNetwork, originTokenAddress, amount } = input;
@@ -226,7 +227,7 @@ export function registerEVMTools(server: McpServer) {
         return { content: [{ type: 'text', text: errorMessage }], isError: true };
       }
       
-      const parsedAmount = parseUnits(amount, finalInputTokenDecimals as number); // Asserting number as we checked for undefined
+      const parsedAmount = BigInt(amount); // Amount is already in the smallest unit
 
       const quote = await acrossClient.getQuote({
         route: {
