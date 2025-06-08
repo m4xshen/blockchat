@@ -166,13 +166,16 @@ export function registerEVMTools(server: McpServer) {
       originTokenAddress: z.string().refine(val => /^0x[a-fA-F0-9]{40}$/.test(val), {
         message: "Origin token address must be a valid Ethereum address (e.g., '0x...')",
       }),
+      destinationTokenAddress: z.string().refine(val => /^0x[a-fA-F0-9]{40}$/.test(val), {
+        message: "Destination token address must be a valid Ethereum address (e.g., '0x...')",
+      }),
       amount: z.string().regex(/^\d+$/, "Amount must be a string of digits representing the smallest unit of the token (e.g., for 1 USDC with 6 decimals, amount should be '1000000').")
         .refine(val => BigInt(val) > 0n, {
           message: "Amount must be greater than 0.",
         }),
     },
     async (input): Promise<{ content: { type: 'text', text: string }[], isError?: boolean, depositTxHash?: Hash }> => {
-      const { originNetwork, destinationNetwork, originTokenAddress, amount } = input;
+      const { originNetwork, destinationNetwork, originTokenAddress, destinationTokenAddress: userProvidedDestinationTokenAddress, amount } = input;
 
       const privateKey = process.env.WALLET_PRIVATE_KEY;
       if (!privateKey) {
@@ -180,7 +183,7 @@ export function registerEVMTools(server: McpServer) {
       }
       const formattedKey = (privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`) as Hex;
 
-      const acrossClient = services.getAcrossClient();
+      const acrossClient = services.getAcrossClient(); // Still needed for getQuote and executeQuote
       const originChain = getChain(originNetwork);
       const destinationChain = getChain(destinationNetwork);
 
@@ -191,69 +194,16 @@ export function registerEVMTools(server: McpServer) {
         return { content: [{ type: 'text', text: `Unsupported destination network: ${destinationNetwork}` }], isError: true };
       }
 
-      console.log(`Attempting to bridge ERC20 token ${originTokenAddress} (${amount}) from ${originNetwork} to ${destinationNetwork}`);
+      console.log(`Attempting to bridge ERC20 token ${originTokenAddress} (${amount}) from ${originNetwork} to ${destinationNetwork} (target token: ${userProvidedDestinationTokenAddress})`);
 
-      let finalInputTokenAddress: Address | undefined;
-      let finalOutputTokenAddress: Address | undefined;
-      let finalInputTokenDecimals: number | undefined;
+      let finalInputTokenAddress: Address;
+      let finalOutputTokenAddress: Address;
       let finalInputTokenSymbol: string | undefined;
 
-      try {
-        // Step 1: Find a route that matches origin/destination chains and the user's origin token address.
-        // Assume Route object from getAvailableRoutes provides at least: originChainId, destinationChainId, inputToken (Address), outputToken (Address).
-        const availableRoutes = await acrossClient.getAvailableRoutes({});
-        const matchedRoute = availableRoutes.find((route: any) => // Using 'any' for route type due to unknown exact structure
-          route.originChainId === originChain.id &&
-          route.inputToken && getAddress(route.inputToken) === getAddress(originTokenAddress) &&
-          route.destinationChainId === destinationChain.id &&
-          route.outputToken
-        );
+      // Assign addresses from input
+      finalInputTokenAddress = getAddress(originTokenAddress);
+      finalOutputTokenAddress = getAddress(userProvidedDestinationTokenAddress);
 
-        if (!matchedRoute) {
-          return { content: [{ type: 'text', text: `No direct Across bridge route found for token ${originTokenAddress} from ${originNetwork} to ${destinationNetwork}. Check token address, network names, and token support on Across.` }], isError: true };
-        }
-
-        finalInputTokenAddress = getAddress(matchedRoute.inputToken);
-        finalOutputTokenAddress = getAddress(matchedRoute.outputToken);
-
-        // Step 2: Fetch decimals and symbol for the input token using its address on the origin chain.
-        // This assumes services.getPublicClient(networkName: string) returns a configured Viem PublicClient.
-        const publicClient = services.getPublicClient(originNetwork);
-        if (!publicClient) {
-          return { content: [{ type: 'text', text: `Failed to get public client for ${originNetwork} to fetch token details.` }], isError: true };
-        }
-
-        try {
-          finalInputTokenDecimals = await publicClient.readContract({
-            address: finalInputTokenAddress,
-            abi: erc20Abi,
-            functionName: 'decimals',
-          }) as number;
-
-          finalInputTokenSymbol = await publicClient.readContract({
-            address: finalInputTokenAddress,
-            abi: erc20Abi,
-            functionName: 'symbol',
-          }) as string;
-        } catch (tokenDetailsError) {
-          console.error(`Error fetching ERC20 details for ${finalInputTokenAddress} on ${originNetwork}:`, tokenDetailsError);
-          return { content: [{ type: 'text', text: `Error fetching details (decimals/symbol) for token ${finalInputTokenAddress} on ${originNetwork}: ${tokenDetailsError instanceof Error ? tokenDetailsError.message : String(tokenDetailsError)}` }], isError: true };
-        }
-
-        if (typeof finalInputTokenDecimals === 'undefined' || !finalInputTokenAddress || !finalOutputTokenAddress) {
-            // This case should ideally be caught by earlier checks or the tokenDetailsError catch block.
-            return { content: [{ type: 'text', text: `Failed to retrieve all necessary token information for bridging ${originTokenAddress} from ${originNetwork} to ${destinationNetwork}.` }], isError: true };
-        }
-
-      } catch (error) { // Catches errors from getAvailableRoutes or other unexpected issues in the try block
-        console.error('Error processing ERC20 bridge request:', error);
-        let errorMessage = `Error processing bridge request: ${error instanceof Error ? error.message : String(error)}`;
-        if (error instanceof Error && (error.message.includes('getAvailableRoutes') || (error.stack && error.stack.includes('getAvailableRoutes')))) {
-            errorMessage += " (Hint: 'getAvailableRoutes' might be unavailable or its usage/return structure is different than assumed. Check SDK version and docs.)";
-        }
-        return { content: [{ type: 'text', text: errorMessage }], isError: true };
-      }
-      
       const parsedAmount = BigInt(amount); // Amount is already in the smallest unit
 
       const quote = await acrossClient.getQuote({
@@ -280,15 +230,11 @@ export function registerEVMTools(server: McpServer) {
           deposit: quote.deposit,
           onProgress: (progress) => {
             console.log(`ERC20 Bridging progress: step=${progress.step}, status=${progress.status}`);
-            if (progress.step === "approve" && progress.status === "txSuccess") {
-              console.log('ERC20 Approval successful. Tx:', progress.txReceipt?.transactionHash);
-            }
             if (progress.step === "deposit" && progress.status === "txSuccess") {
               console.log('ERC20 Deposit successful. Tx:', progress.txReceipt?.transactionHash, 'Deposit ID:', progress.depositId);
               if (progress.txReceipt?.transactionHash) {
                 resolve({
-                  content: [{ type: 'text', text: `Successfully initiated ${finalInputTokenSymbol || 'ERC20'} token bridge. Deposit Tx: ${progress.txReceipt.transactionHash}` }],
-                  depositTxHash: progress.txReceipt.transactionHash
+                  content: [{ type: 'text', text: `Successfully initiated ${finalInputTokenSymbol || 'ERC20'} token bridge. Progress: ${progress}` }],
                 });
               } else {
                 reject({ content: [{ type: 'text', text: "ERC20 Deposit transaction successful but no transaction hash found." }], isError: true });
@@ -1079,7 +1025,7 @@ export function registerEVMTools(server: McpServer) {
         return {
           content: [{
             type: 'text',
-            text: `Swap transaction submitted. Hash: ${hash}. Expected output: ${swapApiResponseData.toAmount} ${toTokenSymbol} (raw amount, decimals: ${toTokenDecimals})`
+            text: `Swap transaction submitted. Hash: ${hash}. Destination amount: ${swapApiResponseData.dstAmount}`
           }],
           // To format nicely, you'd use: services.formatTokenAmount(swapApiResponseData.toAmount, swapApiResponseData.toToken.decimals) if available
           transactionHash: hash
