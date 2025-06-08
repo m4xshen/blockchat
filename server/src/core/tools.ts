@@ -57,20 +57,47 @@ export function registerEVMTools(server: McpServer) {
         return { content: [{ type: 'text', text: `Unsupported destination network: ${destinationNetwork}` }], isError: true };
       }
 
-      const wethAddresses: Record<number, Address> = {
-        [1]: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // Mainnet WETH
-        [10]: "0x4200000000000000000000000000000000000006", // Optimism WETH
-        [42161]: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", // Arbitrum WETH
+      // Dynamically determine WETH addresses using the module-scoped 'chains' variable (from Across SDK's getSupportedChains)
+      // This assumes 'chains' is populated and available in this scope, similar to its usage in 'get_token_contract_address'.
+      // 'chains' structure: Array<{ chainId: number, inputTokens: Array<{symbol: string, address: string}>, outputTokens: Array<{symbol: string, address: string}>, ... }>
+
+      const originAcrossChainInfo = chains.find(c => c.chainId === originChain.id);
+      if (!originAcrossChainInfo) {
+        return { content: [{ type: 'text', text: `Across Protocol chain configuration not found for origin network: ${originNetwork} (ID: ${originChain.id})` }], isError: true };
+      }
+
+      const destinationAcrossChainInfo = chains.find(c => c.chainId === destinationChain.id);
+      if (!destinationAcrossChainInfo) {
+        return { content: [{ type: 'text', text: `Across Protocol chain configuration not found for destination network: ${destinationNetwork} (ID: ${destinationChain.id})` }], isError: true };
+      }
+
+      const findWethAddressInChainInfo = (chainInfo: any, networkNameForError: string): Address | undefined => {
+        const wethSymbolLower = "weth"; // Standardized symbol for lookup
+        let token = chainInfo.inputTokens.find((t: any) => t.symbol.toLowerCase() === wethSymbolLower);
+        if (!token) {
+          token = chainInfo.outputTokens.find((t: any) => t.symbol.toLowerCase() === wethSymbolLower);
+        }
+        
+        if (!token || !token.address) {
+          console.error(`WETH token address not found in Across configuration for network: ${networkNameForError} (ID: ${chainInfo.chainId})`);
+          return undefined;
+        }
+        try {
+          return getAddress(token.address); // Normalize/checksum address using viem's getAddress
+        } catch (e) {
+          console.error(`Invalid WETH address format '${token.address}' for network: ${networkNameForError} (ID: ${chainInfo.chainId})`, e);
+          return undefined;
+        }
       };
 
-      const inputTokenAddress = wethAddresses[originChain.id];
-      const outputTokenAddress = wethAddresses[destinationChain.id];
-
+      const inputTokenAddress = findWethAddressInChainInfo(originAcrossChainInfo, originNetwork);
       if (!inputTokenAddress) {
-        return { content: [{ type: 'text', text: `WETH address not configured for origin chain ID: ${originChain.id}` }], isError: true };
+        return { content: [{ type: 'text', text: `WETH address could not be determined from Across Protocol configuration for origin network: ${originNetwork}. Ensure WETH is listed in input/output tokens for this chain.` }], isError: true };
       }
+
+      const outputTokenAddress = findWethAddressInChainInfo(destinationAcrossChainInfo, destinationNetwork);
       if (!outputTokenAddress) {
-        return { content: [{ type: 'text', text: `WETH address not configured for destination chain ID: ${destinationChain.id}` }], isError: true };
+        return { content: [{ type: 'text', text: `WETH address could not be determined from Across Protocol configuration for destination network: ${destinationNetwork}. Ensure WETH is listed in input/output tokens for this chain.` }], isError: true };
       }
 
       console.log(`Attempting to bridge ${amountInEth} ETH from ${originNetwork} to ${destinationNetwork}`);
