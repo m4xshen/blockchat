@@ -82,7 +82,7 @@ export function ChatMessage({ message, isLastMessage, isLoading }: ChatMessagePr
                 } else if (part.type === 'tool-invocation' && 'toolInvocation' in part) {
                   const toolPart = part as ToolInvocationPart;
                   return (
-                    <Accordion key={index} type="single" collapsible className="bg-muted rounded-md text-sm">
+                    <Accordion key={index} type="single" collapsible className="w-xl bg-muted rounded-md text-sm">
                       <AccordionItem value="tool-call" className="border-none">
                         <AccordionTrigger className="px-3 py-2">
                           <span className="flex items-center">
