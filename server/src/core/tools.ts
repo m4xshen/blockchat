@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as services from "./services/index.js";
-import { type Address, type Hex, type Hash, parseEther, getAddress } from 'viem';
+import { type Address, type Hex, type Hash, parseEther, getAddress, parseUnits, erc20Abi } from 'viem';
 import { getChain, getRpcUrl, getSupportedNetworks } from "./chains.js"; // Assuming getChain is exported from chains.js
 import { normalize } from 'viem/ens';
 import axios from 'axios';
@@ -124,6 +124,159 @@ export function registerEVMTools(server: McpServer) {
         }).catch(error => {
           console.error('Error executing quote:', error);
           reject({ content: [{ type: 'text', text: `Error executing quote: ${error instanceof Error ? error.message : String(error)}` }], isError: true });
+        });
+      });
+    }
+  );
+
+  // Bridge ERC20 Token Tool
+  server.tool(
+    "bridge_erc20_across",
+    "Bridges ERC20 tokens between supported networks using Across Protocol. Requires the token to be supported by Across.",
+    {
+      originNetwork: z.string().min(1, 'Origin network is required'),
+      destinationNetwork: z.string().min(1, 'Destination network is required'),
+      originTokenAddress: z.string().refine(val => /^0x[a-fA-F0-9]{40}$/.test(val), {
+        message: "Origin token address must be a valid Ethereum address (e.g., '0x...')",
+      }),
+      amount: z.string().refine(val => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
+        message: "Amount must be a positive number string (e.g., '100.5')",
+      }),
+    },
+    async (input): Promise<{ content: { type: 'text', text: string }[], isError?: boolean, depositTxHash?: Hash }> => {
+      const { originNetwork, destinationNetwork, originTokenAddress, amount } = input;
+
+      const privateKey = process.env.WALLET_PRIVATE_KEY;
+      if (!privateKey) {
+        return { content: [{ type: 'text', text: "WALLET_PRIVATE_KEY environment variable is not set." }], isError: true };
+      }
+      const formattedKey = (privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`) as Hex;
+
+      const acrossClient = services.getAcrossClient();
+      const originChain = getChain(originNetwork);
+      const destinationChain = getChain(destinationNetwork);
+
+      if (!originChain) {
+        return { content: [{ type: 'text', text: `Unsupported origin network: ${originNetwork}` }], isError: true };
+      }
+      if (!destinationChain) {
+        return { content: [{ type: 'text', text: `Unsupported destination network: ${destinationNetwork}` }], isError: true };
+      }
+
+      console.log(`Attempting to bridge ERC20 token ${originTokenAddress} (${amount}) from ${originNetwork} to ${destinationNetwork}`);
+
+      let finalInputTokenAddress: Address | undefined;
+      let finalOutputTokenAddress: Address | undefined;
+      let finalInputTokenDecimals: number | undefined;
+      let finalInputTokenSymbol: string | undefined;
+
+      try {
+        // Step 1: Find a route that matches origin/destination chains and the user's origin token address.
+        // Assume Route object from getAvailableRoutes provides at least: originChainId, destinationChainId, inputToken (Address), outputToken (Address).
+        const availableRoutes = await acrossClient.getAvailableRoutes({});
+        const matchedRoute = availableRoutes.find((route: any) => // Using 'any' for route type due to unknown exact structure
+          route.originChainId === originChain.id &&
+          route.inputToken && getAddress(route.inputToken) === getAddress(originTokenAddress) &&
+          route.destinationChainId === destinationChain.id &&
+          route.outputToken
+        );
+
+        if (!matchedRoute) {
+          return { content: [{ type: 'text', text: `No direct Across bridge route found for token ${originTokenAddress} from ${originNetwork} to ${destinationNetwork}. Check token address, network names, and token support on Across.` }], isError: true };
+        }
+
+        finalInputTokenAddress = getAddress(matchedRoute.inputToken);
+        finalOutputTokenAddress = getAddress(matchedRoute.outputToken);
+
+        // Step 2: Fetch decimals and symbol for the input token using its address on the origin chain.
+        // This assumes services.getPublicClient(networkName: string) returns a configured Viem PublicClient.
+        const publicClient = services.getPublicClient(originNetwork);
+        if (!publicClient) {
+          return { content: [{ type: 'text', text: `Failed to get public client for ${originNetwork} to fetch token details.` }], isError: true };
+        }
+
+        try {
+          finalInputTokenDecimals = await publicClient.readContract({
+            address: finalInputTokenAddress,
+            abi: erc20Abi,
+            functionName: 'decimals',
+          }) as number;
+
+          finalInputTokenSymbol = await publicClient.readContract({
+            address: finalInputTokenAddress,
+            abi: erc20Abi,
+            functionName: 'symbol',
+          }) as string;
+        } catch (tokenDetailsError) {
+          console.error(`Error fetching ERC20 details for ${finalInputTokenAddress} on ${originNetwork}:`, tokenDetailsError);
+          return { content: [{ type: 'text', text: `Error fetching details (decimals/symbol) for token ${finalInputTokenAddress} on ${originNetwork}: ${tokenDetailsError instanceof Error ? tokenDetailsError.message : String(tokenDetailsError)}` }], isError: true };
+        }
+
+        if (typeof finalInputTokenDecimals === 'undefined' || !finalInputTokenAddress || !finalOutputTokenAddress) {
+            // This case should ideally be caught by earlier checks or the tokenDetailsError catch block.
+            return { content: [{ type: 'text', text: `Failed to retrieve all necessary token information for bridging ${originTokenAddress} from ${originNetwork} to ${destinationNetwork}.` }], isError: true };
+        }
+
+      } catch (error) { // Catches errors from getAvailableRoutes or other unexpected issues in the try block
+        console.error('Error processing ERC20 bridge request:', error);
+        let errorMessage = `Error processing bridge request: ${error instanceof Error ? error.message : String(error)}`;
+        if (error instanceof Error && (error.message.includes('getAvailableRoutes') || (error.stack && error.stack.includes('getAvailableRoutes')))) {
+            errorMessage += " (Hint: 'getAvailableRoutes' might be unavailable or its usage/return structure is different than assumed. Check SDK version and docs.)";
+        }
+        return { content: [{ type: 'text', text: errorMessage }], isError: true };
+      }
+      
+      const parsedAmount = parseUnits(amount, finalInputTokenDecimals as number); // Asserting number as we checked for undefined
+
+      const quote = await acrossClient.getQuote({
+        route: {
+          originChainId: originChain.id,
+          destinationChainId: destinationChain.id,
+          inputToken: finalInputTokenAddress, 
+          outputToken: finalOutputTokenAddress,
+          isNative: false, 
+        },
+        inputAmount: parsedAmount,
+      });
+
+      console.log(`ERC20 Bridge Quote for ${finalInputTokenSymbol || 'token'} received:`, quote);
+
+      const walletClient = services.getWalletClient(formattedKey, originChain.id);
+      if (!walletClient.account) {
+        return { content: [{ type: 'text', text: "Failed to initialize wallet client with an account." }], isError: true };
+      }
+
+      return new Promise((resolve, reject) => {
+        acrossClient.executeQuote({
+          walletClient: walletClient, 
+          deposit: quote.deposit,
+          onProgress: (progress) => {
+            console.log(`ERC20 Bridging progress: step=${progress.step}, status=${progress.status}`);
+            if (progress.step === "approve" && progress.status === "txSuccess") {
+              console.log('ERC20 Approval successful. Tx:', progress.txReceipt?.transactionHash);
+            }
+            if (progress.step === "deposit" && progress.status === "txSuccess") {
+              console.log('ERC20 Deposit successful. Tx:', progress.txReceipt?.transactionHash, 'Deposit ID:', progress.depositId);
+              if (progress.txReceipt?.transactionHash) {
+                resolve({
+                  content: [{ type: 'text', text: `Successfully initiated ${finalInputTokenSymbol || 'ERC20'} token bridge. Deposit Tx: ${progress.txReceipt.transactionHash}` }],
+                  depositTxHash: progress.txReceipt.transactionHash
+                });
+              } else {
+                reject({ content: [{ type: 'text', text: "ERC20 Deposit transaction successful but no transaction hash found." }], isError: true });
+              }
+            }
+            if (progress.step === "fill" && progress.status === "txSuccess") {
+              console.log('ERC20 Fill successful. Tx:', progress.txReceipt?.transactionHash, 'Action Success:', progress.actionSuccess);
+            }
+            if (progress.status === "txError" || progress.status === "error") {
+              console.error('ERC20 Bridging error:', progress);
+              reject({ content: [{ type: 'text', text: `ERC20 Bridging failed at step ${progress.step}. Reason: ${progress.error || 'Unknown error'}` }], isError: true });
+            }
+          },
+        }).catch(error => {
+          console.error('Error executing ERC20 quote:', error);
+          reject({ content: [{ type: 'text', text: `Error executing ERC20 quote: ${error instanceof Error ? error.message : String(error)}` }], isError: true });
         });
       });
     }
