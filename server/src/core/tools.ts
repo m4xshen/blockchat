@@ -897,19 +897,29 @@ export function registerEVMTools(server: McpServer) {
     "transfer_token",
     "Transfer ERC20 tokens to an address",
     {
-      privateKey: z.string().describe("Private key of the sender account in hex format (with or without 0x prefix). SECURITY: This is used only for transaction signing and is not stored."),
       tokenAddress: z.string().describe("The contract address or ENS name of the ERC20 token to transfer (e.g., '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' for USDC or 'uniswap.eth')"),
       toAddress: z.string().describe("The recipient address or ENS name that will receive the tokens (e.g., '0x1234...' or 'vitalik.eth')"),
       amount: z.string().describe("Amount of tokens to send as a string (e.g., '100' for 100 tokens). This will be adjusted for the token's decimals."),
       network: z.string().optional().describe("Network name (e.g., 'ethereum', 'optimism', 'arbitrum', 'base', etc.) or chain ID. Supports all EVM-compatible networks. Defaults to Ethereum mainnet.")
     },
-    async ({ privateKey, tokenAddress, toAddress, amount, network = "ethereum" }) => {
+    async ({ tokenAddress, toAddress, amount, network = "ethereum" }) => {
+      const { WALLET_PRIVATE_KEY } = process.env;
+      if (!WALLET_PRIVATE_KEY) {
+        return {
+          content: [{
+            type: "text",
+            text: "Error: WALLET_PRIVATE_KEY is not set in environment variables."
+          }],
+          isError: true
+        };
+      }
+
       try {
         const result = await services.transferERC20(
           tokenAddress,
           toAddress,
           amount,
-          privateKey,
+          WALLET_PRIVATE_KEY as Hex,
           network
         );
         
