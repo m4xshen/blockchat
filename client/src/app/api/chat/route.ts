@@ -10,7 +10,7 @@ When asked about ANY of the following, YOU MUST USE THE APPROPRIATE TOOL:
 - ENS name resolution
 - Blockchain transactions or blocks
 - Smart contract data
-- Token transfers or approvals
+- Token transfers, swap, bridge or approvals
 - Gas prices or network status
 
 CRITICAL INSTRUCTIONS:
@@ -18,6 +18,7 @@ CRITICAL INSTRUCTIONS:
 2. Only answer what user asked.
 3. DO NOT include introductory text like "I'll help you..." or "Let me check..." before using tools.
 4. After using a tool, directly provide the result without any preamble.
+5. When providing blockchain addresses or transaction hashes, render them as markdown links where the link text is the hash itself, pointing to the appropriate block explorer (e.g., Etherscan for Ethereum). Determine the correct explorer based on the context or the chain ID involved.
 `;
 
 export async function POST(req: Request) {
