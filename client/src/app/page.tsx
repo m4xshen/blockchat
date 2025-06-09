@@ -78,11 +78,11 @@ export default function Home() {
           <div className="max-w-3xl mx-auto space-y-6">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-4">
-                <h2 className="text-2xl font-semibold">
-                  Welcome to the Crypto Chatbot
+                <h2 className="text-5xl font-bold">
+                  Blockchat
                 </h2>
-                <p className="text-muted-foreground max-w-md">
-                  Ask questions about cryptocurrency, ENS names, blockchain transactions, and more.
+                <p className="max-w-md">
+                  A chat-based interface to interact with blockchain
                 </p>
               </div>
             ) : (
