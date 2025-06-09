@@ -77,7 +77,7 @@ export function registerEVMTools(server: McpServer) {
         if (!token) {
           token = chainInfo.outputTokens.find((t: any) => t.symbol.toLowerCase() === wethSymbolLower);
         }
-        
+
         if (!token || !token.address) {
           console.error(`WETH token address not found in Across configuration for network: ${networkNameForError} (ID: ${chainInfo.chainId})`);
           return undefined;
@@ -108,7 +108,7 @@ export function registerEVMTools(server: McpServer) {
           destinationChainId: destinationChain.id,
           inputToken: inputTokenAddress,
           outputToken: outputTokenAddress,
-          isNative: true, 
+          isNative: true,
         },
         inputAmount: parseEther(amountInEth),
       });
@@ -122,7 +122,7 @@ export function registerEVMTools(server: McpServer) {
 
       return new Promise((resolve, reject) => {
         acrossClient.executeQuote({
-          walletClient: walletClient, 
+          walletClient: walletClient,
           deposit: quote.deposit,
           onProgress: (progress) => {
             console.log(`Bridging progress: step=${progress.step}, status=${progress.status}`);
@@ -210,9 +210,9 @@ export function registerEVMTools(server: McpServer) {
         route: {
           originChainId: originChain.id,
           destinationChainId: destinationChain.id,
-          inputToken: finalInputTokenAddress, 
+          inputToken: finalInputTokenAddress,
           outputToken: finalOutputTokenAddress,
-          isNative: false, 
+          isNative: false,
         },
         inputAmount: parsedAmount,
       });
@@ -226,26 +226,30 @@ export function registerEVMTools(server: McpServer) {
 
       return new Promise((resolve, reject) => {
         acrossClient.executeQuote({
-          walletClient: walletClient, 
+          walletClient: walletClient,
           deposit: quote.deposit,
           onProgress: (progress) => {
-            console.log(`ERC20 Bridging progress: step=${progress.step}, status=${progress.status}`);
+            console.log(`Bridging progress: step=${progress.step}, status=${progress.status}`);
+            if (progress.step === "approve" && progress.status === "txSuccess") {
+              console.log('Approval successful. Tx:', progress.txReceipt?.transactionHash);
+            }
             if (progress.step === "deposit" && progress.status === "txSuccess") {
-              console.log('ERC20 Deposit successful. Tx:', progress.txReceipt?.transactionHash, 'Deposit ID:', progress.depositId);
+              console.log('Deposit successful. Tx:', progress.txReceipt?.transactionHash, 'Deposit ID:', progress.depositId);
               if (progress.txReceipt?.transactionHash) {
                 resolve({
-                  content: [{ type: 'text', text: `Successfully initiated ${finalInputTokenSymbol || 'ERC20'} token bridge. Progress: ${progress}` }],
+                  content: [{ type: 'text', text: `Successfully bridged. Deposit Tx: ${progress.txReceipt.transactionHash}. Output Amount: ${progress.meta?.deposit?.outputAmount}` }],
+                  depositTxHash: progress.txReceipt.transactionHash
                 });
               } else {
-                reject({ content: [{ type: 'text', text: "ERC20 Deposit transaction successful but no transaction hash found." }], isError: true });
+                reject({ content: [{ type: 'text', text: "Deposit transaction successful but no transaction hash found." }], isError: true });
               }
             }
             if (progress.step === "fill" && progress.status === "txSuccess") {
-              console.log('ERC20 Fill successful. Tx:', progress.txReceipt?.transactionHash, 'Action Success:', progress.actionSuccess);
+              console.log('Fill successful. Tx:', progress.txReceipt?.transactionHash, 'Action Success:', progress.actionSuccess);
             }
             if (progress.status === "txError" || progress.status === "error") {
-              console.error('ERC20 Bridging error:', progress);
-              reject({ content: [{ type: 'text', text: `ERC20 Bridging failed at step ${progress.step}. Reason: ${progress.error || 'Unknown error'}` }], isError: true });
+              console.error('Bridging error:', progress);
+              reject({ content: [{ type: 'text', text: `Bridging failed at step ${progress.step}. Reason: ${progress.error || 'Unknown error'}` }], isError: true });
             }
           },
         }).catch(error => {
@@ -255,7 +259,7 @@ export function registerEVMTools(server: McpServer) {
       });
     }
   );
-  
+
   // Get chain information
   server.tool(
     "get_chain_info",
@@ -268,7 +272,7 @@ export function registerEVMTools(server: McpServer) {
         const chainId = await services.getChainId(network);
         const blockNumber = await services.getBlockNumber(network);
         const rpcUrl = getRpcUrl(network);
-        
+
         return {
           content: [{
             type: "text",
@@ -293,7 +297,7 @@ export function registerEVMTools(server: McpServer) {
   );
 
   // ENS LOOKUP TOOL
-  
+
   // Resolve ENS name to address
   server.tool(
     "resolve_ens",
@@ -314,13 +318,13 @@ export function registerEVMTools(server: McpServer) {
             isError: true
           };
         }
-        
+
         // Normalize the ENS name
         const normalizedEns = normalize(ensName);
-        
+
         // Resolve the ENS name to an address
         const address = await services.resolveAddress(ensName, network);
-        
+
         return {
           content: [{
             type: "text",
@@ -352,7 +356,7 @@ export function registerEVMTools(server: McpServer) {
     async () => {
       try {
         const networks = getSupportedNetworks();
-        
+
         return {
           content: [{
             type: "text",
@@ -374,7 +378,7 @@ export function registerEVMTools(server: McpServer) {
   );
 
   // BLOCK TOOLS
-  
+
   // Get block by number
   server.tool(
     "get_block_by_number",
@@ -386,7 +390,7 @@ export function registerEVMTools(server: McpServer) {
     async ({ blockNumber, network = "ethereum" }) => {
       try {
         const block = await services.getBlockByNumber(blockNumber, network);
-        
+
         return {
           content: [{
             type: "text",
@@ -415,7 +419,7 @@ export function registerEVMTools(server: McpServer) {
     async ({ network = "ethereum" }) => {
       try {
         const block = await services.getLatestBlock(network);
-        
+
         return {
           content: [{
             type: "text",
@@ -435,11 +439,11 @@ export function registerEVMTools(server: McpServer) {
   );
 
   // BALANCE TOOLS
-  
+
   // Get ETH balance
   server.tool(
     "get_balance",
-    "Get the native token balance (ETH, MATIC, etc.) for an address", 
+    "Get the native token balance (ETH, MATIC, etc.) for an address",
     {
       address: z.string().describe("The wallet address or ENS name (e.g., '0x1234...' or 'vitalik.eth') to check the balance for"),
       network: z.string().optional().describe("Network name (e.g., 'ethereum', 'optimism', 'arbitrum', 'base', etc.) or chain ID. Supports all EVM-compatible networks. Defaults to Ethereum mainnet.")
@@ -447,7 +451,7 @@ export function registerEVMTools(server: McpServer) {
     async ({ address, network = "ethereum" }) => {
       try {
         const balance = await services.getETHBalance(address, network);
-        
+
         return {
           content: [{
             type: "text",
@@ -487,7 +491,7 @@ export function registerEVMTools(server: McpServer) {
           address as Address,
           network
         );
-        
+
         return {
           content: [{
             type: "text",
@@ -527,7 +531,7 @@ export function registerEVMTools(server: McpServer) {
     async ({ tokenAddress, ownerAddress, network = "ethereum" }) => {
       try {
         const balance = await services.getERC20Balance(tokenAddress, ownerAddress, network);
-        
+
         return {
           content: [{
             type: "text",
@@ -555,7 +559,7 @@ export function registerEVMTools(server: McpServer) {
   );
 
   // TRANSACTION TOOLS
-  
+
   // Get transaction by hash
   server.tool(
     "get_transaction",
@@ -567,7 +571,7 @@ export function registerEVMTools(server: McpServer) {
     async ({ txHash, network = "ethereum" }) => {
       try {
         const tx = await services.getTransaction(txHash as Hash, network);
-        
+
         return {
           content: [{
             type: "text",
@@ -597,7 +601,7 @@ export function registerEVMTools(server: McpServer) {
     async ({ txHash, network = "ethereum" }) => {
       try {
         const receipt = await services.getTransactionReceipt(txHash as Hash, network);
-        
+
         return {
           content: [{
             type: "text",
@@ -629,17 +633,17 @@ export function registerEVMTools(server: McpServer) {
     async ({ to, value, data, network = "ethereum" }) => {
       try {
         const params: any = { to: to as Address };
-        
+
         if (value) {
           params.value = services.helpers.parseEther(value);
         }
-        
+
         if (data) {
           params.data = data as `0x${string}`;
         }
-        
+
         const gas = await services.estimateGas(params, network);
-        
+
         return {
           content: [{
             type: "text",
@@ -662,7 +666,7 @@ export function registerEVMTools(server: McpServer) {
   );
 
   // TRANSFER TOOLS
-  
+
   // Transfer ETH
   server.tool(
     "transfer_eth",
@@ -685,9 +689,9 @@ export function registerEVMTools(server: McpServer) {
             isError: true
           };
         }
-        
+
         const txHash = await services.transferETH(privateKey, to, amount, network);
-        
+
         return {
           content: [{
             type: "text",
@@ -735,20 +739,20 @@ export function registerEVMTools(server: McpServer) {
             isError: true
           };
         }
-        
+
         // Get the formattedKey with 0x prefix
-        const formattedKey = privateKey.startsWith('0x') 
-          ? privateKey as `0x${string}` 
+        const formattedKey = privateKey.startsWith('0x')
+          ? privateKey as `0x${string}`
           : `0x${privateKey}` as `0x${string}`;
-        
+
         const result = await services.transferERC20(
-          tokenAddress as Address, 
-          toAddress as Address, 
+          tokenAddress as Address,
+          toAddress as Address,
           amount,
           formattedKey,
           network
         );
-        
+
         return {
           content: [{
             type: "text",
@@ -798,20 +802,20 @@ export function registerEVMTools(server: McpServer) {
             isError: true
           };
         }
-        
+
         // Get the formattedKey with 0x prefix
-        const formattedKey = privateKey.startsWith('0x') 
-          ? privateKey as `0x${string}` 
+        const formattedKey = privateKey.startsWith('0x')
+          ? privateKey as `0x${string}`
           : `0x${privateKey}` as `0x${string}`;
-        
+
         const result = await services.approveERC20(
-          tokenAddress as Address, 
-          spenderAddress as Address, 
+          tokenAddress as Address,
+          spenderAddress as Address,
           amount,
           formattedKey,
           network
         );
-        
+
         return {
           content: [{
             type: "text",
@@ -868,7 +872,7 @@ export function registerEVMTools(server: McpServer) {
           WALLET_PRIVATE_KEY as Hex,
           network
         );
-        
+
         return {
           content: [{
             type: "text",
@@ -906,7 +910,7 @@ export function registerEVMTools(server: McpServer) {
       network: z.string().optional().default("ethereum").describe("Network name (e.g., 'ethereum', 'polygon', 'bsc', 'optimism', 'arbitrum') or chain ID. Defaults to Ethereum mainnet."),
       slippage: z.number().min(0.01).max(50).default(1).describe("Slippage tolerance percentage (e.g., 1 for 1%). Min 0.01, Max 50. Defaults to 1%."),
     },
-    async function (
+    async function(
       this: RequestHandlerExtra, // Ensure 'this' is typed, even if not using this.progress
       input
     ): Promise<{ content: { type: 'text', text: string }[], isError?: boolean, transactionHash?: Hash }> {
@@ -1018,7 +1022,7 @@ export function registerEVMTools(server: McpServer) {
 
         console.log(`swap_tokens_1inch: Swap transaction submitted. Hash: ${hash}`);
         console.log('DEBUG: swap_tokens_1inch - swapApiResponseData:', JSON.stringify(swapApiResponseData, null, 2)); // Log the response for debugging
-        
+
         const toTokenSymbol = swapApiResponseData?.toToken?.symbol || 'Unknown Token';
         const toTokenDecimals = swapApiResponseData?.toToken?.decimals !== undefined ? swapApiResponseData.toToken.decimals : 'N/A';
 
@@ -1053,7 +1057,7 @@ export function registerEVMTools(server: McpServer) {
     async ({ tokenAddress, network = "ethereum" }) => {
       try {
         const tokenInfo = await services.getERC20TokenInfo(tokenAddress as Address, network);
-        
+
         return {
           content: [{
             type: "text",
@@ -1096,7 +1100,7 @@ export function registerEVMTools(server: McpServer) {
           address as Address,
           network
         );
-        
+
         return {
           content: [{
             type: "text",
@@ -1194,12 +1198,12 @@ export function registerEVMTools(server: McpServer) {
             isError: true
           };
         }
-        
+
         // Ensure the private key has 0x prefix
         const formattedKey = privateKey.startsWith('0x') ? privateKey as Hex : `0x${privateKey}` as Hex;
-        
+
         const address = services.getAddressFromPrivateKey(formattedKey);
-        
+
         return {
           content: [{
             type: "text",
