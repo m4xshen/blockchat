@@ -1,8 +1,13 @@
-import { anthropic } from '@ai-sdk/anthropic';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { streamText } from 'ai';
 import { mcpManager } from '@/lib/mcp-client-manager';
 
 export const maxDuration = 120;
+
+// IMPORTANT! Set the OPENROUTER_API_KEY environment variable.
+const openrouter = createOpenRouter({
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
 
 const systemMessage = `
 When asked about ANY of the following, YOU MUST USE THE APPROPRIATE TOOL:
@@ -28,7 +33,7 @@ export async function POST(req: Request) {
 
   try {
     const result = streamText({
-      model: anthropic('claude-3-5-haiku-20241022'),
+      model: openrouter('anthropic/claude-3.5-haiku'),
       system: systemMessage,
       messages,
       tools,
